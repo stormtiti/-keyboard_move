@@ -50,6 +50,12 @@
 #define KEYCODE_D 0x64
 #define KEYCODE_E 0x65
 #define KEYCODE_SPACE 0x20
+#define KEYCODE_ENTER 0x0A
+#define KEYCODE_F 0x66
+#define KEYCODE_E 0x65
+#define KEYCODE_Z 0x7A
+#define KEYCODE_X 0x78
+#define KEYCODE_C 0x63
 
 #define KEYCODE_A_CAP 0x41
 #define KEYCODE_D_CAP 0x44
@@ -70,7 +76,8 @@ class AgvNode
 
         double vx_tmp;
         double vw_tmp;
-
+        double linear_Step;
+        double rotate_Step;
         ros::NodeHandle n_;
         ros::Publisher pub_;
 
@@ -80,11 +87,12 @@ class AgvNode
             pub_ = n_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
 
             ros::NodeHandle n_private("~");
-            n_private.param("walk_vel", walk_vel_, 0.5);
+            n_private.param("walk_vel", walk_vel_, 1.0);
             n_private.param("run_vel", run_vel_, 1.0);
             n_private.param("yaw_rate", yaw_rate_, 1.0);
             n_private.param("yaw_rate_run", yaw_rate_run_, 1.5);
-
+            linear_Step = 0.05;
+            rotate_Step = 0.05;
             vx_tmp = 0;
             vw_tmp = 0;
         }
@@ -121,6 +129,54 @@ double CalAcc(double dt,double current,double acc,double set){
 
 }
 
+
+//加速度限幅 current 当前值 acc加速度 set设定值
+double operateStep(double step,double current,double max,double dir,bool zeroFlag){
+  double dCurSet = 0;
+  /*
+   *
+   */
+  if(zeroFlag)
+  {
+	  if(fabs(current) < fabs(step))
+	  {
+		  dCurSet = 0;
+	  }
+	  else
+	  {
+		  if(current > 0)
+		  {
+			  dCurSet = current - step;
+		  }
+		  else
+		  {
+			  dCurSet = current + step;
+		  }
+	  }
+  }
+  else
+  {
+	  if(dir == 1)
+	  {
+		 dCurSet =  current + step;
+		if(dCurSet >= max)
+		{
+			dCurSet =  max;
+		}
+
+	  }
+	  else if(dir == -1)
+	  {
+		dCurSet =  current - step;
+		if(dCurSet <= -max)
+		{
+			dCurSet =  -max;
+		}
+	  }
+  }
+  return dCurSet;
+}
+
 void AgvNode::keyboardLoop()
 {
     char c;
@@ -155,33 +211,27 @@ void AgvNode::keyboardLoop()
 
         // get the next event from the keyboard
         int num;
-        printf("jump out \n");
         time_diff.End();
         double dt = time_diff.GetTime() / 1e6;
         time_diff.Begin();
 
         if ((num = poll(&ufd, 1, 250)) < 0)
         {
-        	printf("jump out 1\n");
             perror("poll():");
             return;
         }
         else if(num > 0)
         {
-        	printf("jump out 2\n");
             if(read(kfd, &c, 1) < 0)
             {
-            	printf("jump out 3\n");
                 perror("read():");
                 return;
             }
         }
         else
         {
-        	printf("jump out 4\n");
             if (dirty == true)
             {
-            	printf("jump out 5\n");
                 //stopRobot();
                 if(fabs(speed) > 0.00001){
                   max_tv = cmdvel_.linear.x / speed;
@@ -205,28 +255,32 @@ void AgvNode::keyboardLoop()
                 speed = 1;
                 //turn = 0;
                 dirty = true;
-                vx_tmp  = CalAcc(dt,vx_tmp,0.2,speed * max_tv);
+                vx_tmp = operateStep(linear_Step,vx_tmp,walk_vel_,speed,false);
+//                vx_tmp  = CalAcc(dt,vx_tmp,0.2,speed * max_tv);
                 break;
             case KEYCODE_S:
                 max_tv = walk_vel_;
                 speed = -1;
                 //turn = 0;
                 dirty = true;
-                vx_tmp  = CalAcc(dt,vx_tmp,0.2,speed * max_tv);
+                vx_tmp = operateStep(linear_Step,vx_tmp,walk_vel_,speed,false);
+//                vx_tmp  = CalAcc(dt,vx_tmp,0.2,speed * max_tv);
                 break;
             case KEYCODE_A:
                 max_rv = yaw_rate_;
                 //speed = 0;
                 turn = 1;
                 dirty = true;
-                vw_tmp = CalAcc(dt,vw_tmp,0.2,turn * max_rv);
+                vw_tmp = operateStep(rotate_Step,vw_tmp,yaw_rate_,turn,false);
+               // vw_tmp = CalAcc(dt,vw_tmp,0.2,turn * max_rv);
                 break;
             case KEYCODE_D:
                 max_rv = yaw_rate_;
                 //speed = 0;
                 turn = -1;
                 dirty = true;
-                vw_tmp = CalAcc(dt,vw_tmp,0.2,turn * max_rv);
+                vw_tmp = operateStep(rotate_Step,vw_tmp,yaw_rate_,turn,false);
+//                vw_tmp = CalAcc(dt,vw_tmp,0.2,turn * max_rv);
                 break;
 
             case KEYCODE_W_CAP:
@@ -263,8 +317,20 @@ void AgvNode::keyboardLoop()
 				max_rv = yaw_rate_;
 				speed = 0;
 				turn = 0;
-				vx_tmp = 0;
-				vw_tmp = 0;
+				vx_tmp = operateStep(linear_Step,vx_tmp,walk_vel_,speed,true);;
+				vw_tmp = operateStep(rotate_Step,vw_tmp,yaw_rate_,speed,true);
+            	break;
+            case KEYCODE_ENTER:
+            case KEYCODE_F:
+            case KEYCODE_Z:
+            case KEYCODE_X:
+            case KEYCODE_C:
+				max_tv = walk_vel_;
+				max_rv = yaw_rate_;
+				speed = 0;
+				turn = 0;
+            	vx_tmp = 0;
+            	vw_tmp = 0;
             	break;
             default:
                 max_tv = walk_vel_;
@@ -273,11 +339,7 @@ void AgvNode::keyboardLoop()
                 turn = 0;
                 dirty = false;
         }
-        printf("%d \n",KEYCODE_SPACE);
-        printf("%d \n",c);
         c = 0;
-        printf("%f,%f,%d\n",dt,vx_tmp,speed);
-
 //        vx_tmp  = CalAcc(dt,vx_tmp,0.2,speed * max_tv);
         if(fabs(vx_tmp) < 0.1){
           cmdvel_.linear.x = 0;
