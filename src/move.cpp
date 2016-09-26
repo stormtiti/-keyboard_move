@@ -43,6 +43,7 @@
 #include <boost/bind.hpp>
 
 #include "TimerDiff.h"
+#include "agvNode.h"
 
 #define KEYCODE_W 0x77
 #define KEYCODE_A 0x61
@@ -64,49 +65,30 @@
 #define KEYCODE_E_CAP 0x45
 
 
-class AgvNode
+AgvNode::AgvNode():n_private("~")
 {
-    private:
-        double walk_vel_;
-        double run_vel_;
-        double yaw_rate_;
-        double yaw_rate_run_;
+	pub_ = n_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
 
-        geometry_msgs::Twist cmdvel_;
+	n_private.param("walk_vel", walk_vel_, 1.0);
+	n_private.param("run_vel", run_vel_, 1.0);
+	n_private.param("yaw_rate", yaw_rate_, 1.0);
+	n_private.param("yaw_rate_run", yaw_rate_run_, 1.5);
+	linear_Step = 0.05;
+	rotate_Step = 0.05;
+	vx_tmp = 0;
+	vw_tmp = 0;
+}
 
-        double vx_tmp;
-        double vw_tmp;
-        double linear_Step;
-        double rotate_Step;
-        ros::NodeHandle n_;
-        ros::Publisher pub_;
+AgvNode::~AgvNode(){}
 
-    public:
-        AgvNode()
-        {
-            pub_ = n_.advertise<geometry_msgs::Twist>("cmd_vel", 1);
+void AgvNode::stopRobot()
+{
+	cmdvel_.linear.x = 0.0;
+	cmdvel_.angular.z = 0.0;
+	pub_.publish(cmdvel_);
+}
 
-            ros::NodeHandle n_private("~");
-            n_private.param("walk_vel", walk_vel_, 1.0);
-            n_private.param("run_vel", run_vel_, 1.0);
-            n_private.param("yaw_rate", yaw_rate_, 1.0);
-            n_private.param("yaw_rate_run", yaw_rate_run_, 1.5);
-            linear_Step = 0.05;
-            rotate_Step = 0.05;
-            vx_tmp = 0;
-            vw_tmp = 0;
-        }
 
-        ~AgvNode() { }
-        void keyboardLoop();
-
-        void stopRobot()
-        {
-            cmdvel_.linear.x = 0.0;
-            cmdvel_.angular.z = 0.0;
-            pub_.publish(cmdvel_);
-        }
-};
 int kfd = 0;
 struct termios cooked,raw;
 bool done;
@@ -256,6 +238,7 @@ void AgvNode::keyboardLoop()
                 //turn = 0;
                 dirty = true;
                 vx_tmp = operateStep(linear_Step,vx_tmp,walk_vel_,speed,false);
+                printf("walk_vel_ %f \n",walk_vel_);
 //                vx_tmp  = CalAcc(dt,vx_tmp,0.2,speed * max_tv);
                 break;
             case KEYCODE_S:
@@ -358,9 +341,6 @@ void AgvNode::keyboardLoop()
     }
 }
 
-
-//ros::Publisher cmdVelPub;
-
 void shutdown(int sig)
 {
   //cmdVelPub.publish(geometry_msgs::Twist());
@@ -371,45 +351,29 @@ void shutdown(int sig)
 int main(int argc, char **argv)
 {
 
-  ros::init(argc, argv, "exbotxi_example_move");
-  ros::NodeHandle node;
-/*  std::string topic = "cmd_vel";
-  ros::NodeHandle node;
-  cmdVelPub = node.advertise<geometry_msgs::Twist>(topic, 1);
+	ros::init(argc, argv, "keyboard_move");
+	ros::NodeHandle node;
+	double m_haicheng_;
 
-  geometry_msgs::Twist speed;
-  speed.linear.x = 0.1; // 设置线速度为0.1m/s，正为前进，负为后退
-  speed.angular.z = 0.0; // 设置角速度为0.4rad/s，正为左转，负为右转
- while(1){
-  cmdVelPub.publish(speed); // 将刚才设置的指令发送给机器人
- }*/
-  ros::Rate loopRate(40);
-  signal(SIGINT, shutdown);
-  ROS_INFO("exbot_example_move cpp start...");
+	ros::Rate loopRate(40);
+	signal(SIGINT, shutdown);
+	ROS_INFO("keyboard_move start...");
 
-  AgvNode agv;
+	AgvNode agv;
 
+	boost::thread t = boost::thread(boost::bind(&AgvNode::keyboardLoop,&agv));
+	ros::spin();
 
-  boost::thread t = boost::thread(boost::bind(&AgvNode::keyboardLoop,&agv));
+	t.interrupt();
+	t.join();
+	agv.stopRobot();
 
+	tcsetattr(kfd, TCSANOW, &cooked);
+	return 0;
+	while (ros::ok())
+	{
+		loopRate.sleep();
+	}
 
-  ros::spin();
-
- t.interrupt();
- t.join();
- agv.stopRobot();
- tcsetattr(kfd, TCSANOW, &cooked);
- return 0;
-
- // geometry_msgs::Twist speed; // 控制信号载体 Twist message
-  while (ros::ok())
-  {
-    //speed.linear.x = 0.1; // 设置线速度为0.1m/s，正为前进，负为后退
-    //speed.angular.z = 0.4; // 设置角速度为0.4rad/s，正为左转，负为右转
-    //cmdVelPub.publish(speed); // 将刚才设置的指令发送给机器人
-
-    loopRate.sleep();
-  }
-
-  return 0;
+	return 0;
 }
